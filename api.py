@@ -1,6 +1,7 @@
 # api.py - HTTP wrapper around Rupert so it can be called over the network instead of just the CLI
 
 import os
+import logging
 from dotenv import load_dotenv
 from openai import OpenAI
 from fastapi import FastAPI, Header, HTTPException, Depends
@@ -14,6 +15,13 @@ load_dotenv()
 api_key = os.environ.get("OPENROUTER_API_KEY")
 rupert_api_key = os.environ.get("RUPERT_API_KEY")  # secret key required to call this API
 
+# logs every request to a file, so past prompts/responses are recoverable for debugging
+logging.basicConfig(
+    filename="requests.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(message)s",
+)
+
 client = OpenAI(
     api_key=api_key,
     base_url="https://openrouter.ai/api/v1",
@@ -21,11 +29,13 @@ client = OpenAI(
 
 app = FastAPI()
 
+
 # simple endpoint to confirm the server is running - no auth needed,
 # since monitoring tools typically check this before anything else
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
 
 # defines what a valid request body looks like: {"prompt": "..."}
 # FastAPI validates this automatically and rejects anything malformed
@@ -41,6 +51,8 @@ def verify_api_key(x_api_key: str = Header(...)):
 
 @app.post("/agent")
 def run_agent(request: PromptRequest, _: None = Depends(verify_api_key)):
+    logging.info(f"PROMPT: {request.prompt}")
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": request.prompt},
@@ -51,6 +63,8 @@ def run_agent(request: PromptRequest, _: None = Depends(verify_api_key)):
     for _ in range(20):
         final_response = generate_content(client, messages, verbose=False)
         if final_response is not None:
+            logging.info(f"RESPONSE: {final_response}")
             return {"response": final_response}
 
+    logging.info("RESPONSE: Max iterations reached, no final response")
     return {"response": "Error: Maximum iterations reached without a final response"}
