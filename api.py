@@ -21,6 +21,11 @@ client = OpenAI(
 
 app = FastAPI()
 
+# simple endpoint to confirm the server is running - no auth needed,
+# since monitoring tools typically check this before anything else
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
 
 # defines what a valid request body looks like: {"prompt": "..."}
 # FastAPI validates this automatically and rejects anything malformed
