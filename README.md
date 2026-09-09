@@ -11,4 +11,4 @@ object oriented project learning the in and outs of making an ai agent.
 5. Or run as an API: `uv run uvicorn api:app --reload`
    Then visit http://localhost:8000/docs to test interactively
 
-   Uses an agent loop pattern. The model is itterates up to 20 times to find a final answer. Conversation history is saved to SQLite so context survives server restarts.
+   Uses an agent loop pattern. The model itterates up to 20 times to find a final answer. Conversation history is saved to SQLite so context survives server restarts.

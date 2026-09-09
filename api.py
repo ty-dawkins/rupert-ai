@@ -61,16 +61,26 @@ def run_agent(request: PromptRequest, _: None = Depends(verify_api_key)):
         messages = [{"role": "system", "content": system_prompt}]
         save_message(conversation_id, "system", system_prompt)
 
-    # save user message
     save_message(conversation_id, "user", request.prompt)
     messages.append({"role": "user", "content": request.prompt})
 
-    for _ in range(20):
-        final_response = generate_content(client, messages, verbose=False)
-        if final_response is not None:
-            logging.info(f"RESPONSE: {final_response}")
-            save_message(conversation_id, "assistant", final_response)
-            return {"response": final_response, "conversation_id": conversation_id}
+    try:
+        # agent may need multiple tool calls (reading/writing files, etc.)
+        # before it has a final answer, so loop until it does or we hit a cap of 20
+        for _ in range(20):
+            final_response = generate_content(client, messages, verbose=False)
+            if final_response is not None:
+                logging.info(f"RESPONSE: {final_response}")
+                save_message(conversation_id, "assistant", final_response)
+                return {"response": final_response, "conversation_id": conversation_id}
 
-    logging.info("RESPONSE: Max iterations reached, no final response")
-    return {"response": "Error: Maximum iterations reached without a final response"}
+        logging.info("RESPONSE: Max iterations reached, no final response")
+        return {"response": "Error: Maximum iterations reached without a final response"}
+
+    except Exception as e:
+        # log the real error for debugging, but don't leak internal details to the caller
+        logging.error(f"AGENT ERROR: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail="The AI service is currently unavailable. Please try again in a moment.",
+        )
