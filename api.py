@@ -1,6 +1,7 @@
 # api.py - HTTP wrapper around Rupert so it can be called over the network instead of just the CLI
 
 import os
+import uuid
 import logging
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -15,7 +16,6 @@ load_dotenv()
 api_key = os.environ.get("OPENROUTER_API_KEY")
 rupert_api_key = os.environ.get("RUPERT_API_KEY")  # secret key required to call this API
 
-# logs every request to a file, so past prompts/responses are recoverable for debugging
 logging.basicConfig(
     filename="requests.log",
     level=logging.INFO,
@@ -29,21 +29,22 @@ client = OpenAI(
 
 app = FastAPI()
 
+# in-memory store: conversation_id -> list of past messages
+# NOTE: this resets every time the server restarts - a database (next step)
+# would make this persist across restarts
+conversations: dict[str, list] = {}
 
-# simple endpoint to confirm the server is running - no auth needed,
-# since monitoring tools typically check this before anything else
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
 
 
-# defines what a valid request body looks like: {"prompt": "..."}
-# FastAPI validates this automatically and rejects anything malformed
 class PromptRequest(BaseModel):
     prompt: str
+    conversation_id: str | None = None  # omit this to start a new conversation
 
 
-# checks the incoming request for a valid API key before letting it through
 def verify_api_key(x_api_key: str = Header(...)):
     if x_api_key != rupert_api_key:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
@@ -53,18 +54,22 @@ def verify_api_key(x_api_key: str = Header(...)):
 def run_agent(request: PromptRequest, _: None = Depends(verify_api_key)):
     logging.info(f"PROMPT: {request.prompt}")
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": request.prompt},
-    ]
+    # look up existing conversation, or start a new one
+    if request.conversation_id and request.conversation_id in conversations:
+        conversation_id = request.conversation_id
+        messages = conversations[conversation_id]
+    else:
+        conversation_id = str(uuid.uuid4())
+        messages = [{"role": "system", "content": system_prompt}]
 
-    # agent may need multiple tool calls (reading/writing files, etc.)
-    # before it has a final answer, so loop until it does or we hit a cap
+    messages.append({"role": "user", "content": request.prompt})  # user message
+
     for _ in range(20):
         final_response = generate_content(client, messages, verbose=False)
         if final_response is not None:
             logging.info(f"RESPONSE: {final_response}")
-            return {"response": final_response}
+            conversations[conversation_id] = messages  # save updated history
+            return {"response": final_response, "conversation_id": conversation_id}
 
     logging.info("RESPONSE: Max iterations reached, no final response")
     return {"response": "Error: Maximum iterations reached without a final response"}
