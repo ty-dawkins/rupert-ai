@@ -11,3 +11,4 @@ wheels/
 .venv/
 .env
 requests.log
+rupert.db
